@@ -1,0 +1,7 @@
+POST http://localhost:5000/signin 
+Content-Type: application/json
+
+{
+    "email":"kuma11@tos.com",
+    "password":"12aC123"
+}
