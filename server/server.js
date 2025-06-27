@@ -189,6 +189,9 @@ server.post("/upload", upload.single("image"), async (req, res) => {
   }
 });
 
+server.post("/create-blog",(req, res) => {
+    
+})
 
 
 // Khởi động server

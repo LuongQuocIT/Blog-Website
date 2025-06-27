@@ -13,14 +13,16 @@ import { tools } from './tools.component'
 
 function BlogEditor() {
     const [bannerURL, setBannerURL] = useState(defaultBanner);
-    let { blog, blog: { title, banner, content, tags, des }, setBlog } = useContext(EditorContext);
+    let { blog, blog: { title, banner, content, tags, des }, setBlog, textEditor, setTextEditor, setEditorState } = useContext(EditorContext);
     useEffect(() => {
-        let editor = new EditorJS({
+            console.log("CONTENT INIT:", content);
+
+        setTextEditor(new EditorJS({
             holder: 'textEditor',
-            data: "",
+            data: content,
             tools: tools,
             placeholder: 'Nhập nội dung bài viết của bạn tại đây...',
-        })
+        }))
 
     }, []);
     const handleBannerUpload = async (e) => {
@@ -79,7 +81,29 @@ function BlogEditor() {
         input.style.height = input.scrollHeight + "px"; // Set lại height đúng theo nội dung
         setBlog({ ...blog, title: input.value }); // Cập nhật title trong blog state
     };
+    const handlePushlishEvent = () => {
+        if (!banner.length) {
+            return toast.error("Vui lòng tải ảnh bìa lên trước khi xuất bản!");
+        }
+        if (!title.length) {
+            return toast.error("Vui lòng nhập tiêu đề bài viết!");
+        }
+        
+        if (textEditor.isReady) {
+            textEditor.save().then((data) => {
+                if (data.blocks.length) {
+                    setBlog({ ...blog, content: data });
+                    setEditorState("publish");
+                }else{
+                    toast.error("Bài viết không có nội dung!");
+                }
+            }).catch((error) => {
+                console.error("Error saving editor content:", error);
+                toast.error("Lỗi khi lưu nội dung bài viết!");
+            });
+        }
 
+    }
 
     return (
         <>
@@ -92,8 +116,8 @@ function BlogEditor() {
 
                 </p>
                 <div className="flex gap-4 ml-auto">
-                    <button className='btn-dark py-2'>
-                        Pushlish
+                    <button className='btn-dark py-2' onClick={handlePushlishEvent}>
+                        Publish
                     </button>
                     <button className='btn-light py-2'>
                         Save Draft
@@ -110,7 +134,7 @@ function BlogEditor() {
                                 <input type="file" id='uploadBanner' accept='.png ,.jpg, .jpeg' hidden onChange={handleBannerUpload} />
                             </label>
                         </div>
-                        <textarea name="" id="" placeholder='Tiêu đề bài viết của bạn' className='text-4xl font-medium w-full mt-8 mb-5 border-b-2 border-grey focus:outline-none resize-none leading-tight focus:border-e-dark-grey placeholder:opacity-40' rows="1" onKeyDown={handleTitleKeyDown} onChange={handleTitleChange} style={{ height: 'auto' }}>
+                        <textarea value={title} name="" id="" placeholder='Tiêu đề bài viết của bạn' className='text-4xl font-medium w-full mt-8 mb-5 border-b-2 border-grey focus:outline-none resize-none leading-tight focus:border-e-dark-grey placeholder:opacity-40' rows="1" onKeyDown={handleTitleKeyDown} onChange={handleTitleChange} style={{ height: 'auto' }}>
 
                         </textarea>
                         <div id='textEditor' className='font-gelasio'></div>
