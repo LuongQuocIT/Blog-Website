@@ -3,13 +3,17 @@ import AnimationWrapper from '../common/page-animation';
 import { EditorContext } from '../pages/editor.pages';
 import { Toaster, toast } from 'react-hot-toast';
 import Tag from './tags.component';
-
+import axios from 'axios';
+import { UserContext } from '../App';
+import { useNavigate } from 'react-router-dom';
 function PublishForm() {
   const characterLimit = 200;
   const tagLimit = 5;
   const { blog, setEditorState, setBlog } = useContext(EditorContext);
-  const { banner, title, tags, des } = blog;
+  const { banner, title, tags, des, content } = blog;
 
+  let { userAuth: { access_token } } = useContext(UserContext)
+  let navigate = useNavigate()
   const handleCloseEvent = () => {
     setEditorState("editor");
   };
@@ -23,31 +27,94 @@ function PublishForm() {
   };
 
   const handleKeydown = (e) => {
-    if (e.key === "Enter" || e.key === ",") {
-      e.preventDefault();
-      const input = e.target;
-      let value = input.value.trim();
+  if (e.key === "Enter" || e.key === ",") {
+    e.preventDefault();
+    const input = e.target;
+    let value = input.value.trim().replace(/,$/, "");
 
-      if (value.endsWith(",")) value = value.slice(0, -1);
-      if (!value) {
-        toast.error("Tag không được rỗng nha");
-        return;
-      }
-
-      if (tags.includes(value)) {
-        toast.error("Tag đã tồn tại");
-        return;
-      }
-
-      if (tags.length >= tagLimit) {
-        toast.error(`Tối đa ${tagLimit} tag nha`);
-        return;
-      }
-
-      setBlog({ ...blog, tags: [...tags, value] });
-      input.value = '';
+    if (!value) {
+      toast.error("Tag không được rỗng nha");
+      return;
     }
-  };
+
+    if (!Array.isArray(tags)) {
+      toast.error("Tags bị lỗi, thử reload lại page");
+      return;
+    }
+
+    if (tags.includes(value)) {
+      toast.error("Tag đã tồn tại");
+      return;
+    }
+
+    if (tags.length >= tagLimit) {
+      toast.error(`Tối đa ${tagLimit} tag nha`);
+      return;
+    }
+
+    setBlog({ ...blog, tags: [...tags, value] });
+    input.value = '';
+  }
+};
+
+  const pushlishBlog = (e) => {
+    if (e.target.classList.contains('disable')) {
+      return;
+    }
+    if (!title.length) {
+      toast.error("Bạn phải nhập tiêu đề để xuất bản blog");
+      return;
+    }
+    if (!des.length || des.length > characterLimit) {
+      toast.error("Bạn phải nhập mô tả dưới 200 ký tự để xuất bản blog");
+      return;
+    }
+    if (!banner.length) {
+      toast.error("Bạn phải nhập banner để xuất bản blog");
+      return;
+    }
+    if (!tags.length || tags.length > tagLimit) {
+      toast.error(`Bạn phải nhập tối đa ${tagLimit} tag để xuất bản blog`);
+      return;
+    }
+    let loadingToast = toast.loading("Đang xuất bản blog...");
+    e.target.classList.add('disable');
+    let blogObject = {
+      title, banner, des, tags, content, draft: false
+    };
+    axios.post(import.meta.env.VITE_SERVER_DOMAIN + "/create-blog", blogObject, {
+      headers: {
+        "Authorization": `Bearer ${access_token}`
+      }
+    }).then((res) => {
+      e.target.classList.remove('disable');
+      toast.dismiss(loadingToast);
+      toast.success("Blog đã được xuất bản thành công");
+      setTimeout(() => {
+        navigate(`/`);
+      }, 500)
+      setEditorState("editor");
+      setBlog({
+        title: "",
+        des: "",
+        tags: [],
+        banner: "",
+        content: []
+      });
+
+
+
+    }).catch((err) => {
+      e.target.classList.remove('disable');
+      toast.dismiss(loadingToast);
+      console.error(err);
+      if (err.response && err.response.data && err.response.data.error) {
+        toast.error(err.response.data.error);
+      } else {
+        toast.error("Lỗi không xác định, thử lại sau");
+      }
+    });
+  }
 
   return (
     <AnimationWrapper>
@@ -101,10 +168,10 @@ function PublishForm() {
                 <Tag key={i} tagIndex={i} tag={tag} />
               ))}
             </div>
-            
+
           </div>
           <p className='mt-1 mb-4 text-dark-grey text-right '>{tagLimit - tags.length} tags left</p>
-            <button className='btn-dark px-8 '>Xuất bản</button>
+          <button className='btn-dark px-8 ' onClick={pushlishBlog}>Xuất bản</button>
         </div>
       </section>
     </AnimationWrapper>

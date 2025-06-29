@@ -1,5 +1,5 @@
 import React from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import logo from '../imgs/logo.png'
 import AnimationWrapper from '../common/page-animation'
 import defaultBanner from '../imgs/blog banner.png'
@@ -10,12 +10,16 @@ import { EditorContext } from '../pages/editor.pages'
 import { useEffect } from 'react'
 import EditorJS from '@editorjs/editorjs'
 import { tools } from './tools.component'
+import axios from 'axios'
+import { UserContext } from '../App'
 
 function BlogEditor() {
     const [bannerURL, setBannerURL] = useState(defaultBanner);
     let { blog, blog: { title, banner, content, tags, des }, setBlog, textEditor, setTextEditor, setEditorState } = useContext(EditorContext);
+    let { userAuth: { access_token } } = useContext(UserContext)
+    let navigate = useNavigate();
     useEffect(() => {
-            console.log("CONTENT INIT:", content);
+        console.log("CONTENT INIT:", content);
 
         setTextEditor(new EditorJS({
             holder: 'textEditor',
@@ -88,13 +92,13 @@ function BlogEditor() {
         if (!title.length) {
             return toast.error("Vui lòng nhập tiêu đề bài viết!");
         }
-        
+
         if (textEditor.isReady) {
             textEditor.save().then((data) => {
                 if (data.blocks.length) {
                     setBlog({ ...blog, content: data });
                     setEditorState("publish");
-                }else{
+                } else {
                     toast.error("Bài viết không có nội dung!");
                 }
             }).catch((error) => {
@@ -102,6 +106,71 @@ function BlogEditor() {
                 toast.error("Lỗi khi lưu nội dung bài viết!");
             });
         }
+
+    }
+    const handleSaveDraft = (e) => {
+        if (e.target.classList.contains('disable')) {
+            return;
+        }
+        if (!title.length) {
+            toast.error("Bạn phải nhập tiêu trước khi lưu");
+            return;
+        }
+        if (!des.length || des.length > characterLimit) {
+            toast.error("Bạn phải nhập mô tả dưới 200 ký tự ");
+            return;
+        }
+        if (!banner.length) {
+            toast.error("Bạn phải nhập banner ");
+            return;
+        }
+        if (!tags.length || tags.length > tagLimit) {
+            toast.error(`Bạn phải nhập tối đa ${tagLimit} tag `);
+            return;
+        }
+        let loadingToast = toast.loading("Đang lưu...");
+        e.target.classList.add('disable');
+        if (textEditor.isReady) {
+            textEditor.save().then(content => {
+                let blogObject = {
+                    title, banner, des, tags, content, draft: true
+                };
+                axios.post(import.meta.env.VITE_SERVER_DOMAIN + "/create-blog", blogObject, {
+                    headers: {
+                        "Authorization": `Bearer ${access_token}`
+                    }
+                }).then((res) => {
+                    e.target.classList.remove('disable');
+                    toast.dismiss(loadingToast);
+                    toast.success("Blog đã được lưu thành công");
+                    setTimeout(() => {
+                        navigate(`/`);
+                    }, 500)
+                    setEditorState("editor");
+                    setBlog({
+                        title: "",
+                        des: "",
+                        tags: [],
+                        banner: "",
+                        content: []
+                    });
+
+
+
+                }).catch((err) => {
+                    e.target.classList.remove('disable');
+                    toast.dismiss(loadingToast);
+                    console.error(err);
+                    if (err.response && err.response.data && err.response.data.error) {
+                        toast.error(err.response.data.error);
+                    } else {
+                        toast.error("Lỗi không xác định, thử lại sau");
+                    }
+                });
+
+            })
+        }
+
 
     }
 
@@ -119,7 +188,7 @@ function BlogEditor() {
                     <button className='btn-dark py-2' onClick={handlePushlishEvent}>
                         Publish
                     </button>
-                    <button className='btn-light py-2'>
+                    <button className='btn-light py-2' onClick={handleSaveDraft}>
                         Save Draft
                     </button>
                 </div>

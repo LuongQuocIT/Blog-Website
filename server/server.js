@@ -7,10 +7,11 @@ import User from './Schema/User.js';
 import jwt from 'jsonwebtoken'
 import cors from 'cors';
 import admin from "firebase-admin";
-import {getAuth} from "firebase-admin/auth";
+import { getAuth } from "firebase-admin/auth";
 import serviceAccountKey from "./reactjs-blog-website-5fdf7-firebase-adminsdk-fbsvc-888add70b7.json" assert { type: "json" };
-import {cloudinary} from "./utils/cloudinary.js";
+import { cloudinary } from "./utils/cloudinary.js";
 import multer from 'multer';
+import Blog from "./Schema/Blog.js";
 
 const server = express();
 const PORT = process.env.PORT || 5000;
@@ -31,11 +32,11 @@ const passwordRegex = /^(?=.*\d)(?=.*[a-z])(?=.*[A-Z]).{6,20}$/;
 server.use(express.json());
 server.use(express.urlencoded({ extended: true }));
 server.use(
-  cors({
-    origin: ["http://localhost:5174", "http://localhost:5173"],
-    methods: ["GET", "POST", "DELETE", "PUT"],
-    credentials: true,
-  })
+    cors({
+        origin: ["http://localhost:5174", "http://localhost:5173"],
+        methods: ["GET", "POST", "DELETE", "PUT"],
+        credentials: true,
+    })
 );
 // Kết nối MongoDB
 mongoose.connect(process.env.DB_LOCATION, {
@@ -67,6 +68,20 @@ const generateUsername = async (email) => {
     return username;
 };
 
+const verifyJWT = (req, res, next) => {
+    const authHeader = req.headers["authorization"];
+    const token = authHeader && authHeader.split(" ")[1];
+    if (token == null) {
+        return res.status(401).json({ error: "Không có token xác thực" });
+    }
+    jwt.verify(token, process.env.SECRET_ACCESS_KEY, (err, user) => {
+        if (err) {
+            return res.status(403).json({ error: "Token không hợp lệ" });
+        }
+        req.user = user.id;
+        next();
+    });
+}
 // API Đăng ký
 server.post("/signup", async (req, res) => {
     try {
@@ -143,7 +158,7 @@ server.post("/signin", async (req, res) => {
 });
 server.post("/google-auth", async (req, res) => {
     const { access_token } = req.body;
-    
+
     try {
         const decodedUser = await getAuth().verifyIdToken(access_token);
 
@@ -174,27 +189,77 @@ server.post("/google-auth", async (req, res) => {
 });
 
 server.post("/upload", upload.single("image"), async (req, res) => {
-  try {
-    const file = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
+    try {
+        const file = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
 
-    const result = await cloudinary.uploader.upload(file, {
-      folder: "blog_images",
-       timeout: 60000
-    });
+        const result = await cloudinary.uploader.upload(file, {
+            folder: "blog_images",
+            timeout: 60000
+        });
 
-    return res.status(200).json({ url: result.secure_url });
-  } catch (err) {
-    console.log("🔥 Upload lỗi:", err);
-    return res.status(500).json({ error: err.message });
-  }
+        return res.status(200).json({ url: result.secure_url });
+    } catch (err) {
+        console.log("🔥 Upload lỗi:", err);
+        return res.status(500).json({ error: err.message });
+    }
 });
 
-server.post("/create-blog",(req, res) => {
-    
+server.post("/create-blog", verifyJWT, (req, res) => {
+    let authorId = req.user;
+    let { title, des, tags, banner, content, draft } = req.body;
+    if (!title.length) {
+        return res.status(403).json({ error: "You must provide a title " });
+    }
+    if (!draft) {
+        if (!des.length || des.length > 200) {
+            return res.status(403).json({ error: "You must provide blog description under 200 characters" });
+        }
+        if (!banner.length) {
+            return res.status(403).json({ error: "You must provide blog banner to publish it" });
+        }
+        if (!content.blocks.length) {
+            return res.status(403).json({ error: "You must provide blog content to publish it" });
+        }
+        if (!tags.length || tags.length > 10) {
+            return res.status(403).json({ error: "Provide tags in order to publish the blog, Maximum 10" });
+            I
+        }
+    }
+    tags = tags.map(tag => tag.toLowerCase());
+    let blogId = title.replace(/[^a-zA-z0-9] /g, " ").replace(/\s+/g, '-').trim() + nanoid();
+    const blog = new Blog({
+        title,
+        des,
+        tags,
+        banner,
+        content,
+        author: authorId,
+        blog_id: blogId,
+        draft: Boolean(draft),
+    })
+    blog.save()
+        .then((blog) => {
+            let increment = draft ? 0 : 1;
+            User.findOneAndUpdate(
+                { _id: authorId },
+                { $inc: { "account_info.total_posts": increment }, $push: { "blogs": blog._id } },
+                { new: true }
+            )
+                .then(() => {
+                    return res.status(200).json({ id: blog.blog_id });
+                })
+                .catch(err => {
+                    return res.status(500).json({ error: "Failed to update blog" });
+                });
+        })
+        .catch(err => {
+            return res.status(500).json({ error: err.message || "Failed to create blog" });
+        });
+
 })
 
 
 // Khởi động server
 server.listen(PORT, () => {
-  console.log("Server is running on port", PORT);
+    console.log("Server is running on port", PORT);
 });
