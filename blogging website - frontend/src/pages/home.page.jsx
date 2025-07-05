@@ -6,14 +6,22 @@ import Loader from '../components/loader.component'; // nếu có component này
 import BlogPostCard from '../components/blog-post.component';
 import MinimalBlogPost from '../components/nobanner-blog-post.component';
 import { activeTabRef } from '../components/inpage-navigation.component';
+import NoDataMessage from '../components/nodata.component';
+import filterPaginationData from '../common/filter-pagination-data';
 function HomePage() {
     let [blogs, setBlog] = useState(null);
+    blogs=[{},{},{}]
+    blogs={
+        results:[{},{},{}],
+        page:1,
+        totalDocs:10,
+    }
     let [trendingBlogs, setTrendingBlogs] = useState(null)
     let [pageState, setPageState] = useState("Trang Chủ")
     let categories = ["lập trình", "phim hollywood", "khoa học", "nấu ăn", "công nghệ", "tài chính", "du lịch", "thế giới"];
 
-    const fetchLatestBlogs = () => {
-        axios.get(import.meta.env.VITE_SERVER_DOMAIN + "/latest-blogs")
+    const fetchLatestBlogs = (page = 1 ) => {
+        axios.get(import.meta.env.VITE_SERVER_DOMAIN + "/latest-blogs",{page})
             .then(({ data }) => {
                 setBlog(data.blogs);
             })
@@ -32,14 +40,20 @@ function HomePage() {
 
     };
     const fetchBlogByCategory = () => {
-        axios.post(import.meta.env.VITE_SERVER_DOMAIN + "/search-blogs",{tag:pageState})
-            .then(({ data }) => {
-                setBlog(data.blogs);
+        axios.post(import.meta.env.VITE_SERVER_DOMAIN + "/search-blogs", { tag: pageState })
+            .then(async ({ data }) => {
+                let formatData=  await filterPaginationData({
+                    state:blogs,
+                    data:data.blogs,
+                    page,
+                    countRoute:"/all-latest-blogs-count",
+                })
+                setBlog(formatData);
             })
             .catch((err) => {
                 console.error("Lỗi fetch blog:", err);
             });
-        }
+    }
     const loadBlogByCategory = (e) => {
         let category = e.target.innerText.toLowerCase()
         setBlog(null)
@@ -55,10 +69,10 @@ function HomePage() {
         activeTabRef.current.click()
         if (pageState == "Trang Chủ") {
             fetchLatestBlogs();
-        }else{
+        } else {
             fetchBlogByCategory()
         }
-        
+
         if (!trendingBlogs) {
             fetchTrendingBlogs();
 
@@ -73,23 +87,29 @@ function HomePage() {
                         <>
                             {
                                 blogs === null
-                                    ? <Loader />
-                                    : blogs.map((blog, i) => {
-                                        return <AnimationWrapper transition={{ duration: 1, delay: i * .1 }} key={i}>
-                                            <BlogPostCard content={blog} author={blog.author} />
-                                        </AnimationWrapper>
-                                    })
+                                    ? (<Loader />)
+                                    : blogs.results.length ?
+                                        blogs.results.map((blog, i) => {
+                                            return <AnimationWrapper transition={{ duration: 1, delay: i * .1 }} key={i}>
+                                                <BlogPostCard content={blog} author={blog.author} />
+                                            </AnimationWrapper>
+                                        })
+                                        : <NoDataMessage message={"Không có bài viết này"} />
+
                             }
                         </>
                         <>
                             {
                                 trendingBlogs === null
                                     ? <Loader />
-                                    : trendingBlogs.map((blog, i) => {
-                                        return <AnimationWrapper transition={{ duration: 1, delay: i * .1 }} key={i}>
-                                            <MinimalBlogPost blog={blog} index={i} />
-                                        </AnimationWrapper>
-                                    })
+                                    : trendingBlogs.length ?
+                                        trendingBlogs.map((blog, i) => {
+                                            return <AnimationWrapper transition={{ duration: 1, delay: i * .1 }} key={i}>
+                                                <MinimalBlogPost blog={blog} index={i} />
+                                            </AnimationWrapper>
+                                        }) : <NoDataMessage message={"Không có bài viết này"} />
+
+
                             }
                         </>
 
