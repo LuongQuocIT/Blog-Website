@@ -204,21 +204,21 @@ server.post("/upload", upload.single("image"), async (req, res) => {
     }
 });
 
-server.get("/trending-blogs",(req,res)=>{
-    Blog.find({draft:false})
-    .populate("author","personal_info.profile_img personal_info.username personal_info.fullname -_id")
-    .sort({"activity.total_read":-1,"activity.total_likes":-1,"publishedAt":-1})
-    .select("blog_id title publishedAt -_id")
-    .limit(5)
-    .then(blogs=>{
-        return res.status(200).json({blogs})
-    })
-    .catch(err=>{
-        return res.status(500).json({error:err.message})
-    })
+server.get("/trending-blogs", (req, res) => {
+    Blog.find({ draft: false })
+        .populate("author", "personal_info.profile_img personal_info.username personal_info.fullname -_id")
+        .sort({ "activity.total_read": -1, "activity.total_likes": -1, "publishedAt": -1 })
+        .select("blog_id title publishedAt -_id")
+        .limit(5)
+        .then(blogs => {
+            return res.status(200).json({ blogs })
+        })
+        .catch(err => {
+            return res.status(500).json({ error: err.message })
+        })
 })
 server.post('/latest-blogs', (req, res) => {
-    let { page } = req.body; 
+    let { page } = req.body;
     let maxLimit = 5;
 
     Blog.find({ draft: false })
@@ -247,8 +247,16 @@ server.post("/all-latest-blogs-count", (req, res) => {
 });
 
 server.post("/search-blogs-count", (req, res) => {
-    let { tag } = req.body;
-    let findQuery = { tags: tag, draft: false };
+    let { tag, query } = req.body;
+    let findQuery;
+
+    if (tag) {
+        findQuery = { tags: tag, draft: false };
+    } else if (query) {
+        findQuery = { title: new RegExp(query, "i"), draft: false };
+    } else {
+        return res.status(403).json({ error: "You must provide tag or query to search blogs" });
+    }
     Blog.countDocuments(findQuery)
         .then(count => {
             return res.status(200).json({ totalDocs: count });
@@ -258,32 +266,46 @@ server.post("/search-blogs-count", (req, res) => {
             return res.status(500).json({ error: err.message });
         });
 });
-server.post("/search-blogs",(req,res)=>{
-let {tag,page, query}=req.body; 
-let findQuery
-let maxLimit=2;
-if(tag){
-    findQuery={tags:tag,draft:false};
-}else if(query){
-   findQuery={draft:false, title:new RegExp(query, 'i')};
-}else{
-    return res.status(403).json({error:"You must provide tag or query to search blogs"})
-}
-Blog.find(findQuery)
-.populate("author","personal_info.profile_img personal_info.username personal_info.fullname -_id")
-.sort({"publishedAt":-1})
-.select("blog_id title des banner activity tags publishedAt -_id")
-.limit(maxLimit)
-.skip((page-1)*maxLimit)
-.then(blogs=>{
-    return res.status(200).json({blogs})
-})
-.catch(err=>{
-    return res.status(500).json({error:err.message})
-})
+server.post("/search-blogs", (req, res) => {
+    let { tag, page, query } = req.body;
+    let findQuery
+    let maxLimit = 2;
+    if (tag) {
+        findQuery = { tags: tag, draft: false };
+    } else if (query) {
+        findQuery = { draft: false, title: new RegExp(query, 'i') };
+    } else {
+        return res.status(403).json({ error: "You must provide tag or query to search blogs" })
+    }
+    Blog.find(findQuery)
+        .populate("author", "personal_info.profile_img personal_info.username personal_info.fullname -_id")
+        .sort({ "publishedAt": -1 })
+        .select("blog_id title des banner activity tags publishedAt -_id")
+        .limit(maxLimit)
+        .skip((page - 1) * maxLimit)
+        .then(blogs => {
+            return res.status(200).json({ blogs })
+        })
+        .catch(err => {
+            return res.status(500).json({ error: err.message })
+        })
 })
 
-
+server.post("/search-users", (req, res) => {
+    let { query, page } = req.body;
+    let maxLimit = 50;
+    User.find({ "personal_info.fullname": new RegExp(query, "i") })
+        .limit(maxLimit)
+        .select("personal_info.profile_img personal_info.username personal_info.fullname account_info.total_posts -_id")
+        .sort({ "personal_info.fullname": 1 })
+        .skip((page - 1) * maxLimit)
+        .then(users => {
+            return res.status(200).json({ users });
+        })
+        .catch(err => {
+            return res.status(500).json({ error: err.message });
+        });
+});
 
 server.post("/create-blog", verifyJWT, (req, res) => {
     let authorId = req.user;

@@ -11,7 +11,7 @@ function Navbar() {
     const access_token = userAuth?.access_token;
     const access_key = userAuth?.access_key;
     const profile_img = userAuth?.profile_img;
-    const navigate=useNavigate();
+    const navigate = useNavigate();
     const handleUserNavPanel = () => {
         setUserNavPanel(currentVal => !currentVal);
     }
@@ -26,8 +26,8 @@ function Navbar() {
     const handleSearch = (e) => {
         let query = e.target.value;
         if (e.keyCode === 13 && query) {
+            setSearchBoxVisibility(false)
             navigate(`/search/${query}`);
-            setSearchBoxVisibility(false);
         }
     }
 
