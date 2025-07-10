@@ -1,6 +1,4 @@
-POST  http://localhost:5000/search-users
-Content-Type: application/json
+curl -X POST http://localhost:5000/search-blogs \
+-H "Content-Type: application/json" \
+-d '{"query":"abc"}'
 
-{
-  "query": "quoc"
-}

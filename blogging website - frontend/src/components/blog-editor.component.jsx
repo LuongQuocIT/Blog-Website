@@ -15,8 +15,21 @@ import { UserContext } from '../App'
 
 function BlogEditor() {
     const [bannerURL, setBannerURL] = useState(defaultBanner);
-    let { blog, blog: { title, banner, content, tags, des }, setBlog, textEditor, setTextEditor, setEditorState } = useContext(EditorContext);
-    let { userAuth: { access_token } } = useContext(UserContext)
+    const {
+        blog,
+        setBlog,
+        textEditor,
+        setTextEditor,
+        setEditorState
+    } = useContext(EditorContext);
+
+    const title = blog?.title || "";
+    const banner = blog?.banner || "";
+    const content = blog?.content || "";
+    const tags = blog?.tags || [];
+    const des = blog?.des || "";
+    let { userAuth } = useContext(UserContext);
+    let access_token = userAuth?.access_token || "";
     let navigate = useNavigate();
     useEffect(() => {
         console.log("CONTENT INIT:", content);

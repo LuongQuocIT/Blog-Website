@@ -247,14 +247,18 @@ server.post("/all-latest-blogs-count", (req, res) => {
 });
 
 server.post("/search-blogs-count", (req, res) => {
-    let { tag, query } = req.body;
+    let { tag, query,author } = req.body;
     let findQuery;
 
     if (tag) {
         findQuery = { tags: tag, draft: false };
     } else if (query) {
         findQuery = { title: new RegExp(query, "i"), draft: false };
-    } else {
+    } else 
+    if(author){
+        findQuery = { author, draft: false };
+    }
+    else {
         return res.status(403).json({ error: "You must provide tag or query to search blogs" });
     }
     Blog.countDocuments(findQuery)
@@ -267,14 +271,17 @@ server.post("/search-blogs-count", (req, res) => {
         });
 });
 server.post("/search-blogs", (req, res) => {
-    let { tag, page, query } = req.body;
+    let { tag, page, query, author } = req.body;
     let findQuery
     let maxLimit = 2;
     if (tag) {
         findQuery = { tags: tag, draft: false };
     } else if (query) {
         findQuery = { draft: false, title: new RegExp(query, 'i') };
-    } else {
+    } else if(author){
+        findQuery = { draft: false, author };
+    }
+    else {
         return res.status(403).json({ error: "You must provide tag or query to search blogs" })
     }
     Blog.find(findQuery)
@@ -306,6 +313,22 @@ server.post("/search-users", (req, res) => {
             return res.status(500).json({ error: err.message });
         });
 });
+
+server.post("/get-profile", (req, res) => {
+    let {username} = req.body
+User.findOne({ "personal_info.username": username   })
+        .select("-personal_info.password -google_auth -updatedAt -blogs")
+        .then(user => {
+            if (!user) {
+                return res.status(404).json({ error: "User not found" });
+            }
+            return res.status(200).json(user);
+        })
+        .catch(err => {
+            console.error("Error fetching user profile:", err);
+            return res.status(500).json({ error: "Failed to fetch user profile" });
+        });
+})
 
 server.post("/create-blog", verifyJWT, (req, res) => {
     let authorId = req.user;
