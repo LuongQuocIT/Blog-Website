@@ -5,12 +5,13 @@ import { Toaster, toast } from 'react-hot-toast';
 import Tag from './tags.component';
 import axios from 'axios';
 import { UserContext } from '../App';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 function PublishForm() {
   const characterLimit = 200;
   const tagLimit = 5;
   const { blog, setEditorState, setBlog } = useContext(EditorContext);
   const { banner, title, tags, des, content } = blog;
+  let {blog_id} = useParams();
 
   let { userAuth: { access_token } } = useContext(UserContext)
   let navigate = useNavigate()
@@ -82,7 +83,7 @@ function PublishForm() {
     let blogObject = {
       title, banner, des, tags, content, draft: false
     };
-    axios.post(import.meta.env.VITE_SERVER_DOMAIN + "/create-blog", blogObject, {
+    axios.post(import.meta.env.VITE_SERVER_DOMAIN + "/create-blog", { ...blogObject,id: blog_id }, {
       headers: {
         "Authorization": `Bearer ${access_token}`
       }

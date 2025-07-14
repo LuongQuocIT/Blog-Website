@@ -1,5 +1,5 @@
 import React from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import logo from '../imgs/logo.png'
 import AnimationWrapper from '../common/page-animation'
 import defaultBanner from '../imgs/blog banner.png'
@@ -25,18 +25,21 @@ function BlogEditor() {
 
     const title = blog?.title || "";
     const banner = blog?.banner || "";
-    const content = blog?.content || "";
+    const content = blog?.content || [];
     const tags = blog?.tags || [];
     const des = blog?.des || "";
     let { userAuth } = useContext(UserContext);
     let access_token = userAuth?.access_token || "";
+    let { blog_id } = useParams();
     let navigate = useNavigate();
+    const characterLimit = 200;
+    const tagLimit = 10; // hoặc giới hạn mà ông muốn
+
     useEffect(() => {
-        console.log("CONTENT INIT:", content);
 
         setTextEditor(new EditorJS({
             holder: 'textEditor',
-            data: content,
+            data: Array.isArray(content) ? content[0] : content,
             tools: tools,
             placeholder: 'Nhập nội dung bài viết của bạn tại đây...',
         }))
@@ -133,10 +136,11 @@ function BlogEditor() {
             toast.error("Bạn phải nhập mô tả dưới 200 ký tự ");
             return;
         }
-        if (!banner.length) {
+        if (typeof banner !== 'string' || !banner.length) {
             toast.error("Bạn phải nhập banner ");
             return;
         }
+
         if (!tags.length || tags.length > tagLimit) {
             toast.error(`Bạn phải nhập tối đa ${tagLimit} tag `);
             return;
@@ -148,7 +152,7 @@ function BlogEditor() {
                 let blogObject = {
                     title, banner, des, tags, content, draft: true
                 };
-                axios.post(import.meta.env.VITE_SERVER_DOMAIN + "/create-blog", blogObject, {
+                axios.post(import.meta.env.VITE_SERVER_DOMAIN + "/create-blog", { ...blogObject, id: blog_id }, {
                     headers: {
                         "Authorization": `Bearer ${access_token}`
                     }

@@ -1,4 +1,3 @@
-curl -X POST http://localhost:5000/search-blogs \
--H "Content-Type: application/json" \
--d '{"query":"abc"}'
-
+curl -X POST http://localhost:5000/get-blog \
+  -H "Content-Type: application/json" \
+  -d '{"blog_id":"-Làm-th-nào-đ-code-React-không-b-đau-đầu?mnJi2t4rT9ZtT1QrQ8c4d"}'

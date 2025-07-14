@@ -247,20 +247,20 @@ server.post("/all-latest-blogs-count", (req, res) => {
 });
 
 server.post("/search-blogs-count", (req, res) => {
-    let { tag, query,author } = req.body;
+    let { tag, query, author } = req.body;
     let findQuery;
 
     if (tag) {
         findQuery = { tags: tag, draft: false };
     } else if (query) {
         findQuery = { title: new RegExp(query, "i"), draft: false };
-    } else 
-    if(author){
-        findQuery = { author, draft: false };
-    }
-    else {
-        return res.status(403).json({ error: "You must provide tag or query to search blogs" });
-    }
+    } else
+        if (author) {
+            findQuery = { author, draft: false };
+        }
+        else {
+            return res.status(403).json({ error: "You must provide tag or query to search blogs" });
+        }
     Blog.countDocuments(findQuery)
         .then(count => {
             return res.status(200).json({ totalDocs: count });
@@ -271,19 +271,19 @@ server.post("/search-blogs-count", (req, res) => {
         });
 });
 server.post("/search-blogs", (req, res) => {
-    let { tag, page, query, author } = req.body;
+    let { tag, page, query, author, limit, eliminate_blog } = req.body;
     let findQuery
-    let maxLimit = 2;
     if (tag) {
-        findQuery = { tags: tag, draft: false };
+        findQuery = { tags: tag, draft: false, blog_id: { $ne: eliminate_blog } };
     } else if (query) {
         findQuery = { draft: false, title: new RegExp(query, 'i') };
-    } else if(author){
+    } else if (author) {
         findQuery = { draft: false, author };
     }
     else {
         return res.status(403).json({ error: "You must provide tag or query to search blogs" })
     }
+    let maxLimit = limit ? limit : 2
     Blog.find(findQuery)
         .populate("author", "personal_info.profile_img personal_info.username personal_info.fullname -_id")
         .sort({ "publishedAt": -1 })
@@ -315,8 +315,8 @@ server.post("/search-users", (req, res) => {
 });
 
 server.post("/get-profile", (req, res) => {
-    let {username} = req.body
-User.findOne({ "personal_info.username": username   })
+    let { username } = req.body
+    User.findOne({ "personal_info.username": username })
         .select("-personal_info.password -google_auth -updatedAt -blogs")
         .then(user => {
             if (!user) {
@@ -330,9 +330,43 @@ User.findOne({ "personal_info.username": username   })
         });
 })
 
+server.post("/get-blog", (req, res) => {
+    let { blog_id, draft, mode } = req.body;
+    // console.log("🔎 blog_id nhận được:", blog_id);
+
+    let incrementVal = mode !== "edit" ? 1 : 0;
+
+    Blog.findOneAndUpdate(
+        { blog_id },
+        { $inc: { "activity.total_reads": incrementVal } }
+    )
+        .populate("author", "personal_info.profile_img personal_info.username personal_info.fullname")
+        .select("title des tags banner content publishedAt blog_id activity")
+        .then(blog => {
+
+
+            // ✅ Chỉ chạy đoạn này nếu blog có dữ liệu
+            User.findOneAndUpdate(
+                { "personal_info.username": blog.author?.personal_info?.username },
+                { $inc: { "account_info.total_reads": incrementVal } },
+            ).catch(err => {
+                console.error("Error updating user reads:", err);
+            });
+            if (blog.draft && !draft) {
+                return res.status(403).json({ error: "This blog is a draft and cannot be accessed publicly" });
+            }
+
+            return res.status(200).json({ blog });
+        })
+        .catch(err => {
+            console.error("Error fetching blog:", err);
+            return res.status(500).json({ error: "Failed to fetch blog" });
+        });
+});
+
 server.post("/create-blog", verifyJWT, (req, res) => {
     let authorId = req.user;
-    let { title, des, tags, banner, content, draft } = req.body;
+    let { title, des, tags, banner, content, draft, id } = req.body;
     if (!title.length) {
         return res.status(403).json({ error: "You must provide a title " });
     }
@@ -352,35 +386,57 @@ server.post("/create-blog", verifyJWT, (req, res) => {
         }
     }
     tags = tags.map(tag => tag.toLowerCase());
-    let blogId = title.replace(/[^a-zA-z0-9] /g, " ").replace(/\s+/g, '-').trim() + nanoid();
-    const blog = new Blog({
-        title,
-        des,
-        tags,
-        banner,
-        content,
-        author: authorId,
-        blog_id: blogId,
-        draft: Boolean(draft),
-    })
-    blog.save()
-        .then((blog) => {
-            let increment = draft ? 0 : 1;
-            User.findOneAndUpdate(
-                { _id: authorId },
-                { $inc: { "account_info.total_posts": increment }, $push: { "blogs": blog._id } },
-                { new: true }
-            )
-                .then(() => {
-                    return res.status(200).json({ id: blog.blog_id });
-                })
-                .catch(err => {
-                    return res.status(500).json({ error: "Failed to update blog" });
-                });
+    let blogId =id|| title.replace(/[^a-zA-z0-9] /g, " ").replace(/\s+/g, '-').trim() + nanoid();
+    if (id) {
+        Blog.findOneAndUpdate(
+            { blog_id: id },{
+                title,
+                des,
+                tags,
+                banner,
+                content,
+            draft:draft? draft : false})
+            .then((blog) => {
+                if (!blog) {
+                    return res.status(404).json({ error: "Blog not found" });
+                }
+                return res.status(200).json({ id: blog.blog_id });
+            })
+            .catch(err => {
+                console.error("Error updating blog:", err);
+                return res.status(500).json({ error: "Failed to update blog" });
+            })
+
+    } else {
+        const blog = new Blog({
+            title,
+            des,
+            tags,
+            banner,
+            content,
+            author: authorId,
+            blog_id: blogId,
+            draft: Boolean(draft),
         })
-        .catch(err => {
-            return res.status(500).json({ error: err.message || "Failed to create blog" });
-        });
+        blog.save()
+            .then((blog) => {
+                let increment = draft ? 0 : 1;
+                User.findOneAndUpdate(
+                    { _id: authorId },
+                    { $inc: { "account_info.total_posts": increment }, $push: { "blogs": blog._id } },
+                    { new: true }
+                )
+                    .then(() => {
+                        return res.status(200).json({ id: blog.blog_id });
+                    })
+                    .catch(err => {
+                        return res.status(500).json({ error: "Failed to update blog" });
+                    });
+            })
+            .catch(err => {
+                return res.status(500).json({ error: err.message || "Failed to create blog" });
+            });
+    }
 
 })
 
