@@ -7,10 +7,12 @@ import { getDay } from '../common/date';
 import BlogInteraction from '../components/blog-interaction.component';
 import BlogPostCard from '../components/blog-post.component';
 import BlogContent from '../components/blog-content.component';
+import CommentsContainer from '../components/comments.component';
 
 export const blogStructure = {
   title: "",
   des: "",
+  
   content: "",
   author: {
     personal_info: {}
@@ -27,7 +29,9 @@ function BlogPage() {
   const [blog, setBlog] = useState(null);
   const [similarBlogs, setSimilarBlogs] = useState();
   const [loading, setLoading] = useState(true);
-
+   const [isLikedByUser, setIsLikedByUser] = useState(false);
+   const [commentsWrapper, setCommentsWrapper] = useState(false);
+   const [totalParentCommentsLoaded, setTotalParentCommentsLoaded] = useState(0);
 
   const fetchBlog = () => {
     axios
@@ -39,8 +43,6 @@ function BlogPage() {
         axios.post(import.meta.env.VITE_SERVER_DOMAIN + "/search-blogs", { tag: blog.tags[0], limit: 6, eliminate_blog: blog_id })
           .then(({ data }) => {
             setSimilarBlogs(data.blogs);
-            console.log("Similar blogs data:", data.blogs);
-
           })
         setBlog(blog);
         setLoading(false);
@@ -60,6 +62,9 @@ function BlogPage() {
     setBlog(blogStructure);
     setSimilarBlogs(null);
     setLoading(true);
+    setIsLikedByUser(false);
+    setCommentsWrapper(false);
+    setTotalParentCommentsLoaded(0);
   };
   // ✅ Check nếu blog chưa có thì return loading
   if (!blog) return <div>Đang tải blog...</div>;
@@ -79,7 +84,8 @@ function BlogPage() {
     <AnimationWrapper>
       {
         loading ? <Loader /> :
-          <BlogContext.Provider value={{ blog, setBlog }}>
+          <BlogContext.Provider value={{ blog, setBlog, isLikedByUser, setIsLikedByUser, commentsWrapper, setCommentsWrapper,totalParentCommentsLoaded, setTotalParentCommentsLoaded }}>
+            <CommentsContainer />
             <div className='max-w-[900px] center-content py-10 max-lg:px-[5vw] '>
               <img src={banner} alt="" className='aspect-video' />
               <div className="mt-12">

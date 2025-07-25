@@ -12,6 +12,8 @@ import serviceAccountKey from "./reactjs-blog-website-5fdf7-firebase-adminsdk-fb
 import { cloudinary } from "./utils/cloudinary.js";
 import multer from 'multer';
 import Blog from "./Schema/Blog.js";
+import Notification from "./Schema/Notification.js";
+import Comment from "./Schema/Comment.js";
 
 const server = express();
 const PORT = process.env.PORT || 5000;
@@ -364,6 +366,118 @@ server.post("/get-blog", (req, res) => {
         });
 });
 
+server.post("/like-blog", verifyJWT, async (req, res) => {
+    try {
+        const user_id = req.user; // string ObjectId
+        const { _id: blogId, isLiked } = req.body;
+
+        const blog = await Blog.findByIdAndUpdate(
+            blogId,
+            { $inc: { "activity.total_likes": isLiked ? 1 : -1 } },
+            { new: true }
+        );
+
+        if (isLiked) {
+            await Notification.updateOne(
+                { type: "like", blog: blogId, user: user_id },
+                {
+                    $setOnInsert: {
+                        type: "like",
+                        blog: blogId,
+                        user: user_id,
+                        notification_for: blog.author,
+                    },
+                },
+                { upsert: true }
+            );
+        } else {
+            await Notification.deleteMany({ type: "like", blog: blogId, user: user_id });
+        }
+
+        res.json({ likedByUser: isLiked, blog });
+    } catch (err) {
+        console.error("Error in /like-blog:", err);
+        res.status(500).json({ error: "Something went wrong" });
+    }
+});
+
+server.post("/is-liked-by-user", verifyJWT, async (req, res) => {
+    try {
+        const user_id = req.user;
+        const { _id: blogId } = req.body;
+
+        const exists = await Notification.exists({
+            type: "like",
+            blog: blogId,
+            user: user_id,
+        });
+
+        res.json({ isLikedByUser: !!exists });
+    } catch (err) {
+        console.error("Error checking like status:", err);
+        res.status(500).json({ error: "Failed to check like status" });
+    }
+});
+
+server.post("/add-comment", verifyJWT, async (req, res) => {
+  try {
+    const user_id = req.user; // HOẶC req.user.id nếu verifyJWT trả object
+    const { _id, comment, blog_author } = req.body;
+
+    if (!comment || !comment.trim().length) {
+      return res.status(403).json({ error: "You must provide a comment" });
+    }
+
+    if (!_id) {
+      return res.status(400).json({ error: "Blog ID is required" });
+    }
+
+    const commentObj = new Comment({
+      commented_by: user_id,
+      comment,
+      blog_author,
+      blog_id: _id
+    });
+
+    const commentFile = await commentObj.save();
+
+    await Blog.findOneAndUpdate(
+      { _id },
+      {
+        $push: { comments: commentFile._id },
+        $inc: {
+          "activity.total_comments": 1,
+          "activity.total_parent_comments": 1
+        }
+      }
+    );
+
+    const notificationObj = {
+      type: "comment",
+      blog: _id,
+      user: user_id,
+      notification_for: blog_author,
+      comment: commentFile._id
+    };
+
+    await new Notification(notificationObj).save();
+
+    const { comment: cmt, commentedAt, children } = commentFile;
+    return res.status(200).json({
+      comment: cmt,
+      commentedAt,
+      _id: commentFile._id,
+      user_id,
+      children
+    });
+  } catch (err) {
+    console.error("Error adding comment:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+
+
 server.post("/create-blog", verifyJWT, (req, res) => {
     let authorId = req.user;
     let { title, des, tags, banner, content, draft, id } = req.body;
@@ -386,16 +500,17 @@ server.post("/create-blog", verifyJWT, (req, res) => {
         }
     }
     tags = tags.map(tag => tag.toLowerCase());
-    let blogId =id|| title.replace(/[^a-zA-z0-9] /g, " ").replace(/\s+/g, '-').trim() + nanoid();
+    let blogId = id || title.replace(/[^a-zA-z0-9] /g, " ").replace(/\s+/g, '-').trim() + nanoid();
     if (id) {
         Blog.findOneAndUpdate(
-            { blog_id: id },{
-                title,
-                des,
-                tags,
-                banner,
-                content,
-            draft:draft? draft : false})
+            { blog_id: id }, {
+            title,
+            des,
+            tags,
+            banner,
+            content,
+            draft: draft ? draft : false
+        })
             .then((blog) => {
                 if (!blog) {
                     return res.status(404).json({ error: "Blog not found" });
