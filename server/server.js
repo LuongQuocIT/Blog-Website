@@ -14,6 +14,7 @@ import multer from 'multer';
 import Blog from "./Schema/Blog.js";
 import Notification from "./Schema/Notification.js";
 import Comment from "./Schema/Comment.js";
+import { populate } from "dotenv";
 
 const server = express();
 const PORT = process.env.PORT || 5000;
@@ -419,64 +420,233 @@ server.post("/is-liked-by-user", verifyJWT, async (req, res) => {
     }
 });
 
+
 server.post("/add-comment", verifyJWT, async (req, res) => {
-  try {
-    const user_id = req.user; // HOẶC req.user.id nếu verifyJWT trả object
-    const { _id, comment, blog_author } = req.body;
+    try {
+        const user_id = req.user;
+        const { _id, comment, blog_author, replaying_to } = req.body;
 
-    if (!comment || !comment.trim().length) {
-      return res.status(403).json({ error: "You must provide a comment" });
-    }
-
-    if (!_id) {
-      return res.status(400).json({ error: "Blog ID is required" });
-    }
-
-    const commentObj = new Comment({
-      commented_by: user_id,
-      comment,
-      blog_author,
-      blog_id: _id
-    });
-
-    const commentFile = await commentObj.save();
-
-    await Blog.findOneAndUpdate(
-      { _id },
-      {
-        $push: { comments: commentFile._id },
-        $inc: {
-          "activity.total_comments": 1,
-          "activity.total_parent_comments": 1
+        if (!comment || !comment.trim().length) {
+            return res.status(403).json({ error: "You must provide a comment" });
         }
-      }
-    );
 
-    const notificationObj = {
-      type: "comment",
-      blog: _id,
-      user: user_id,
-      notification_for: blog_author,
-      comment: commentFile._id
-    };
+        if (!_id) {
+            return res.status(400).json({ error: "Blog ID is required" });
+        }
 
-    await new Notification(notificationObj).save();
+        const blogObjectId = new mongoose.Types.ObjectId(_id);
+        const userObjectId = new mongoose.Types.ObjectId(user_id);
 
-    const { comment: cmt, commentedAt, children } = commentFile;
-    return res.status(200).json({
-      comment: cmt,
-      commentedAt,
-      _id: commentFile._id,
-      user_id,
-      children
+        const commentObj = new Comment({
+            commented_by: userObjectId,
+            comment,
+            blog_author,
+            blog_id: blogObjectId
+        });
+        if (replaying_to) {
+            commentObj.parent = replaying_to
+            commentObj.isReply = true;
+        }
+
+        const commentFile = await commentObj.save();
+
+        await Blog.findOneAndUpdate(
+            { _id: blogObjectId },
+            {
+                $push: { comments: commentFile._id },
+                $inc: {
+                    "activity.total_comments": 1,
+                    "activity.total_parent_comments": replaying_to ? 0 : 1
+                }
+            }
+        );
+
+        let notificationObj = {
+            type: replaying_to ? "reply" : "comment",
+            blog: blogObjectId,
+            user: userObjectId,
+            notification_for: blog_author,
+            comment: commentFile._id
+        }
+
+        if (replaying_to) {
+            notificationObj.replied_on_comment = replaying_to;
+            await Comment.findByIdAndUpdate(
+                { _id: replaying_to },
+                {
+                    $push: { "children": commentFile._id }
+                }
+            ).then(replayingToCommentDoc => {
+                notificationObj.notification_for = replayingToCommentDoc.commented_by
+            })
+        }
+
+        new Notification(notificationObj).save().then(() => {
+            console.log("✅ Notification saved successfully");
+        }).catch(err => {
+            console.error("❌ Error saving notification:", err);
+        })
+        // Populate để FE render ngay
+        const populatedComment = await commentFile.populate(
+            "commented_by",
+            "personal_info.username personal_info.fullname personal_info.profile_img"
+        );
+
+        return res.status(200).json({
+            _id: populatedComment._id,
+            comment: populatedComment.comment,
+            commentedAt: populatedComment.commentedAt,
+            commented_by: populatedComment.commented_by,
+            children: populatedComment.children
+        });
+    } catch (err) {
+        console.error("Error adding comment:", err);
+        return res.status(500).json({ error: err.message });
+    }
+});
+const deleteComments = async (_id) => {
+    const comment = await Comment.findById(_id);
+
+    if (!comment) return;
+
+    // Nếu là reply → bỏ nó khỏi parent
+    if (comment.parent) {
+        await Comment.findByIdAndUpdate(comment.parent, {
+            $pull: { children: _id }
+        });
+    }
+
+    // Xoá thông báo liên quan
+    await Notification.deleteMany({ $or: [{ comment: _id }, { reply: _id }] });
+
+    // Gỡ comment khỏi blog + trừ số lượng
+    await Blog.findByIdAndUpdate(comment.blog_id, {
+        $pull: { comments: _id },
+        $inc: {
+            "activity.total_comments": -1,
+            "activity.total_parent_comments": comment.parent ? 0 : -1
+        }
     });
-  } catch (err) {
-    console.error("Error adding comment:", err);
-    return res.status(500).json({ error: err.message });
-  }
+
+    // Xoá comment chính
+    await Comment.deleteOne({ _id });
+
+    // Xoá luôn các con nếu có
+    if (comment.children.length) {
+        for (const childId of comment.children) {
+            await deleteComments(childId);
+        }
+    }
+};
+
+server.post("/delete-comment", verifyJWT, async (req, res) => {
+    try {
+        const user_id = req.user; // Lấy từ token
+        const { _id } = req.body;
+
+        if (!_id) {
+            return res.status(400).json({ error: "Comment ID is required" });
+        }
+
+        const comment = await Comment.findById(_id);
+
+        if (!comment) {
+            return res.status(404).json({ error: "Comment not found" });
+        }
+
+        // Lấy blog để kiểm tra chủ blog
+        const blog = await Blog.findById(comment.blog_id).populate("author", "personal_info.username");
+        const blog_author = blog.author.personal_info.username;
+
+        // Lấy username người đang request
+        const user = await User.findById(user_id).select("personal_info.username");
+        const currentUsername = user.personal_info.username;
+
+        // Chỉ cho phép xoá nếu là người viết comment hoặc chủ blog
+        if (currentUsername !== blog_author && !comment.commented_by.equals(user_id)) {
+            return res.status(403).json({ error: "Not authorized to delete this comment" });
+        }
+
+        // Gọi hàm đệ quy xoá
+        await deleteComments(_id);
+
+        return res.status(200).json({ message: "Comment deleted successfully" });
+
+    } catch (err) {
+        console.error("❌ Error deleting comment:", err);
+        res.status(500).json({ error: err.message });
+    }
 });
 
+server.post("/get-blog-comments", async (req, res) => {
+    try {
+        const { blog_id, skip = 0 } = req.body;
+        const maxLimit = 10;
 
+        // Check id hợp lệ
+        if (!blog_id || !mongoose.Types.ObjectId.isValid(blog_id)) {
+            return res.status(400).json({ error: "Invalid blog ID" });
+        }
+
+        const blogObjectId = new mongoose.Types.ObjectId(blog_id);
+
+        const comments = await Comment.find({
+            blog_id: blogObjectId,
+            isReply: false
+        })
+            .populate(
+                "commented_by",
+                "personal_info.profile_img personal_info.username personal_info.fullname"
+            )
+            .skip(skip)
+            .limit(maxLimit)
+            .sort({ commentedAt: -1 })
+            .lean();
+
+        return res.status(200).json({ comments });
+    } catch (err) {
+        console.error("Error fetching blog comments:", err);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+server.post("/delete-comment", verifyJWT, async (req, res) => {
+    try {
+        const user_id = req.user;
+        const { _id } = req.body;
+
+        if (!_id) {
+            return res.status(400).json({ error: "Comment ID is required" });
+        }
+
+        const commentObjectId = new mongoose.Types.ObjectId(_id);
+
+        const comment = await Comment.findById(commentObjectId).then(comment => {
+            if (user_id === comment.commented_by || user_id === comment.blog_author) {
+                deleteComment(commentObjectId);
+                return res.status(200).json({ status: 'done' });
+            } else {
+                return res.status(403).json({ error: "You are not authorized to delete this comment" });
+            }
+        })
+
+        if (!comment) {
+            return res.status(404).json({ error: "Comment not found" });
+        }
+
+        if (comment.commented_by.toString() !== user_id) {
+
+        } else {
+            return res.status(403).json({ error: "You are not authorized to delete this comment" });
+        }
+
+        await Comment.deleteOne({ _id: commentObjectId });
+        return res.status(200).json({ message: "Comment deleted successfully" });
+    } catch (err) {
+        console.error("Error deleting comment:", err);
+        return res.status(500).json({ error: err.message });
+    }
+});
 
 server.post("/create-blog", verifyJWT, (req, res) => {
     let authorId = req.user;
@@ -554,6 +724,44 @@ server.post("/create-blog", verifyJWT, (req, res) => {
     }
 
 })
+
+
+server.post("/get-replies", async (req, res) => {
+    try {
+        const { comment_id, skip } = req.body;
+        const maxLimit = 5;
+
+        if (!comment_id || !mongoose.Types.ObjectId.isValid(comment_id)) {
+            return res.status(400).json({ error: "Invalid comment ID" });
+        }
+
+        const comment = await Comment.findOne({ _id: comment_id })
+            .populate({
+                path: "children",
+                options: {
+                    limit: maxLimit,
+                    skip: Number(skip) || 0,
+                    sort: { commentedAt: -1 }
+                },
+                populate: {
+                    path: "commented_by",
+                    select: "personal_info.profile_img personal_info.username personal_info.fullname"
+                },
+                select: "-blog_id -updatedAt"
+            })
+            .select("children");
+
+        if (!comment) {
+            return res.status(404).json({ error: "Comment not found" });
+        }
+
+        return res.status(200).json({ replies: comment.children });
+    } catch (err) {
+        console.error("Error fetching replies:", err);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
 
 
 // Khởi động server
