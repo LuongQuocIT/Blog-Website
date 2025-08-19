@@ -762,6 +762,49 @@ server.post("/get-replies", async (req, res) => {
     }
 });
 
+server.post("/change-password", verifyJWT, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!passwordRegex.test(newPassword) || !passwordRegex.test(currentPassword)) {
+      return res.status(403).json({
+        error: "Mật khẩu mới phải từ 6-20 ký tự, có ít nhất 1 số, 1 chữ thường, 1 chữ hoa"
+      });
+    }
+
+    const user = await User.findById(req.user);
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    if (user.google_auth) {
+      return res.status(403).json({ error: "You cannot change password for Google authenticated users" });
+    }
+
+    const match = await bcrypt.compare(currentPassword, user.personal_info.password);
+    if (!match) {
+      return res.status(403).json({ error: "Mật khẩu hiện tại không đúng" });
+    }
+
+    // hash password mới
+    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+
+    // cập nhật user
+    user.personal_info.password = hashedNewPassword;
+    await user.save();
+
+    return res.status(200).json({ message: "Mật khẩu đã được thay đổi thành công" });
+
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+
+
+
+
 
 
 // Khởi động server
