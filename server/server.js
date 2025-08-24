@@ -191,6 +191,35 @@ server.post("/google-auth", async (req, res) => {
     }
 });
 
+server.post("/update-profile-img", verifyJWT, async (req, res) => {
+    try {
+        const { profile_img } = req.body;
+
+        if (!profile_img) {
+            return res.status(400).json({ error: "Profile image is required" });
+        }
+
+        await User.findByIdAndUpdate(
+            { _id: req.user },
+            { "personal_info.profile_img": profile_img },
+            { new: true }
+        )
+            .then(() => {
+                return res.status(200).json({
+                    profile_img,
+                    message: "Profile image updated successfully"
+                });
+            })
+            .catch((err) => {
+                console.error("Error updating profile image:", err);
+                return res.status(500).json({ error: "Failed to update profile image" });
+            });
+    } catch (err) {
+        console.error("Error updating profile image:", err);
+        return res.status(500).json({ error: "Failed to update profile image" });
+    }
+});
+
 server.post("/upload", upload.single("image"), async (req, res) => {
     try {
         const file = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
@@ -319,7 +348,7 @@ server.post("/search-users", (req, res) => {
 
 server.post("/get-profile", (req, res) => {
     let { username } = req.body
-    User.findOne({ "personal_info.username": username })
+    User.findOne({ "personal_info.username": username },)
         .select("-personal_info.password -google_auth -updatedAt -blogs")
         .then(user => {
             if (!user) {
@@ -366,6 +395,53 @@ server.post("/get-blog", (req, res) => {
             return res.status(500).json({ error: "Failed to fetch blog" });
         });
 });
+
+server.post("/update-profile", verifyJWT, async (req, res) => {
+    try {
+        const user_id = req.user;
+        const { username, bio, social_links, profile_img, fullname } = req.body;
+
+        // validate username
+        if (!username || username.length < 3) {
+            return res.status(400).json({ error: "Username must be at least 3 characters long" });
+        }
+
+        // validate bio
+        if (!bio || bio.length > 150) {
+            return res.status(400).json({ error: "Bio must be at most 150 characters long" });
+        }
+
+        // validate social_links
+        if (social_links && typeof social_links === "object") {
+            for (let key of Object.keys(social_links)) {
+                if (typeof social_links[key] !== "string") {
+                    return res.status(400).json({ error: `Invalid value for ${key}` });
+                }
+            }
+        }
+
+        // update user
+        const user = await User.findOneAndUpdate(
+            { _id: user_id },
+            {
+                $set: {
+                    "personal_info.profile_img": profile_img,
+                    "personal_info.fullname": fullname,
+                    "personal_info.username": username,
+                    "personal_info.bio": bio,
+                    "social_links": social_links,
+                }
+            },
+            { new: true }
+        );
+
+        res.json(user);
+    } catch (err) {
+        console.error("Error in /update-profile:", err);
+        res.status(500).json({ error: "Failed to update profile" });
+    }
+});
+
 
 server.post("/like-blog", verifyJWT, async (req, res) => {
     try {
@@ -623,7 +699,7 @@ server.post("/delete-comment", verifyJWT, async (req, res) => {
 
         const comment = await Comment.findById(commentObjectId).then(comment => {
             if (user_id === comment.commented_by || user_id === comment.blog_author) {
-                deleteComment(commentObjectId);
+                deleteComments(commentObjectId);
                 return res.status(200).json({ status: 'done' });
             } else {
                 return res.status(403).json({ error: "You are not authorized to delete this comment" });
@@ -763,42 +839,42 @@ server.post("/get-replies", async (req, res) => {
 });
 
 server.post("/change-password", verifyJWT, async (req, res) => {
-  try {
-    const { currentPassword, newPassword } = req.body;
+    try {
+        const { currentPassword, newPassword } = req.body;
 
-    if (!passwordRegex.test(newPassword) || !passwordRegex.test(currentPassword)) {
-      return res.status(403).json({
-        error: "Mật khẩu mới phải từ 6-20 ký tự, có ít nhất 1 số, 1 chữ thường, 1 chữ hoa"
-      });
+        if (!passwordRegex.test(newPassword) || !passwordRegex.test(currentPassword)) {
+            return res.status(403).json({
+                error: "Mật khẩu mới phải từ 6-20 ký tự, có ít nhất 1 số, 1 chữ thường, 1 chữ hoa"
+            });
+        }
+
+        const user = await User.findById(req.user);
+        if (!user) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        if (user.google_auth) {
+            return res.status(403).json({ error: "You cannot change password for Google authenticated users" });
+        }
+
+        const match = await bcrypt.compare(currentPassword, user.personal_info.password);
+        if (!match) {
+            return res.status(403).json({ error: "Mật khẩu hiện tại không đúng" });
+        }
+
+        // hash password mới
+        const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+
+        // cập nhật user
+        user.personal_info.password = hashedNewPassword;
+        await user.save();
+
+        return res.status(200).json({ message: "Mật khẩu đã được thay đổi thành công" });
+
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ error: "Server error" });
     }
-
-    const user = await User.findById(req.user);
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    if (user.google_auth) {
-      return res.status(403).json({ error: "You cannot change password for Google authenticated users" });
-    }
-
-    const match = await bcrypt.compare(currentPassword, user.personal_info.password);
-    if (!match) {
-      return res.status(403).json({ error: "Mật khẩu hiện tại không đúng" });
-    }
-
-    // hash password mới
-    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
-
-    // cập nhật user
-    user.personal_info.password = hashedNewPassword;
-    await user.save();
-
-    return res.status(200).json({ message: "Mật khẩu đã được thay đổi thành công" });
-
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Server error" });
-  }
 });
 
 

@@ -66,7 +66,7 @@ function ChangePassword() {
 
       <form ref={ChangePasswordForm} onSubmit={handleSubmit}>
         <h1 className="text-2xl font-bold mb-6 max-md:hidden">Change Password</h1>
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 ">
           <InputBox
             name="currentPassword"
             type="password"

@@ -70,7 +70,7 @@ function BlogEditor() {
     };
 
 
-    const uploadToCloudinary = async (file) => {
+     const uploadToCloudinary = async (file) => {
         const formData = new FormData();
         formData.append("image", file);
         formData.append("upload_preset", "blog_upload");
